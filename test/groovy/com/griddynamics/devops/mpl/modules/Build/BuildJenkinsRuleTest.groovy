@@ -1,5 +1,5 @@
 //
-// Copyright (c) 2018 Grid Dynamics International, Inc. All Rights Reserved
+// Copyright (c) 2020 Grid Dynamics International, Inc. All Rights Reserved
 // https://www.griddynamics.com
 //
 // Classification level: Public
@@ -30,16 +30,23 @@ import static com.lesfurets.jenkins.unit.global.lib.LocalSource.localSource
 import static org.assertj.core.api.Assertions.assertThat
 
 import com.griddynamics.devops.mpl.Helper
-import com.griddynamics.devops.mpl.testing.MPLTestBase
+import com.griddynamics.devops.mpl.testing.MPLTestBaseJenkinsRule
 
-class BuildTest extends MPLTestBase {
-  def script = null
-
+/**
+ * Same tests using JenkinsRule
+ *
+ * @author Sergei Parshev <sparshev@griddynamics.com>
+ */
+public class BuildJenkinsRuleTest extends MPLTestBaseJenkinsRule {
   @Override
   @Before
   void setUp() throws Exception {
-    String sharedLibs = this.class.getResource('.').getFile()
+    //setScriptRoots([ 'vars' ] as String[])
+    //setScriptExtension('groovy')
 
+    super.setUp()
+
+    String sharedLibs = this.class.getResource('.').getFile()
     helper.registerSharedLibrary(library()
         .name('mpl')
         .allowOverride(false)
@@ -50,51 +57,54 @@ class BuildTest extends MPLTestBase {
         .build()
     )
 
-    setScriptRoots([ 'vars' ] as String[])
-    setScriptExtension('groovy')
-
-    super.setUp()
-
     binding.setVariable('env', [:])
 
-    helper.registerAllowedMethod('fileExists', [String.class], null)
+    // Shared lib requirements
+    helper.registerAllowedMethod('MPLModule', [], null)
+    helper.registerAllowedMethod('MPLModule', [String.class], null)
+    helper.registerAllowedMethod('MPLModule', [String.class, Object.class], null)
+    helper.registerAllowedMethod('call', [String.class, Object.class], null)
+
+    // Test requirements
+    helper.registerAllowedMethod('fileExists', [String.class], { return false })
     helper.registerAllowedMethod('tool', [String.class], { name -> "${name}_HOME" })
     helper.registerAllowedMethod('withEnv', [List.class, Closure.class], null)
-
-    script = loadScript('MPLModule.groovy')
+    helper.registerAllowedMethod('sh', [String.class], {})
   }
 
+
   @Test
-  void default_run() throws Exception {
-    script.call('Build')
+  void default_run() {
+    runMPLModule('Build')
 
     printCallStack()
 
     assertThat(helper.callStack)
       .filteredOn { c -> c.methodName == 'tool' }
       .filteredOn { c -> c.argsToString().contains('Maven 3') }
+      .as('Maven 3 tool used')
       .isNotEmpty()
 
     assertThat(helper.callStack)
-      .as('Shell execution should contain mvn command and default clean install')
       .filteredOn { c -> c.methodName == 'sh' }
       .filteredOn { c -> c.argsToString().startsWith('mvn') }
       .filteredOn { c -> c.argsToString().contains('clean install') }
+      .as('Shell execution should contain mvn command and default clean install')
       .isNotEmpty()
 
     assertThat(helper.callStack)
-      .as('Default mvn run without settings provided')
       .filteredOn { c -> c.methodName == 'sh' }
       .filteredOn { c -> c.argsToString().startsWith('mvn') }
       .filteredOn { c -> ! c.argsToString().contains('-s ') }
+      .as('Default mvn run without settings provided')
       .isNotEmpty()
 
     assertJobStatusSuccess()
   }
 
   @Test
-  void change_tool() throws Exception {
-    script.call('Build', [
+  void change_tool() {
+    runMPLModule('Build', [
       maven: [
         tool_version: 'Maven 2',
       ],
@@ -103,17 +113,17 @@ class BuildTest extends MPLTestBase {
     printCallStack()
 
     assertThat(helper.callStack)
-      .as('Changing maven tool name')
       .filteredOn { c -> c.methodName == 'tool' }
       .filteredOn { c -> c.argsToString().contains('Maven 2') }
+      .as('Changing maven tool name')
       .isNotEmpty()
 
     assertJobStatusSuccess()
   }
 
   @Test
-  void change_settings() throws Exception {
-    script.call('Build', [
+  void change_settings() {
+    runMPLModule('Build', [
       maven: [
         settings_path: '/test-settings.xml',
       ],
@@ -122,9 +132,9 @@ class BuildTest extends MPLTestBase {
     printCallStack()
 
     assertThat(helper.callStack)
-      .as('Providing setings file should set the maven opetion')
       .filteredOn { c -> c.methodName == 'sh' }
       .filteredOn { c -> c.argsToString().contains("-s '/test-settings.xml'") }
+      .as('Providing settings file should set the maven operation')
       .isNotEmpty()
 
     assertJobStatusSuccess()
